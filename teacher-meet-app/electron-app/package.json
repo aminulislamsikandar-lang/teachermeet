@@ -1,0 +1,31 @@
+{
+  "name": "teacher-meet-app",
+  "version": "1.0.0",
+  "description": "Windows video-call app with admin dual-camera (face + paper/pen) mode",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.tutorial.teachermeet",
+    "productName": "TeacherMeet",
+    "files": [
+      "**/*",
+      "!config.json"
+    ],
+    "extraResources": [
+      {
+        "from": "config.json",
+        "to": "config.json"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

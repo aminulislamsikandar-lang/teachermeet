@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>TeacherMeet</title>
+<style>
+  :root {
+    --bg: #202124;
+    --panel: #2c2d31;
+    --accent: #1a73e8;
+    --danger: #d93025;
+    --text: #e8eaed;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ---------- Join screen ---------- */
+  #joinScreen {
+    margin: auto;
+    background: var(--panel);
+    padding: 32px;
+    border-radius: 12px;
+    width: 360px;
+    text-align: center;
+  }
+  #joinScreen h1 { font-size: 20px; margin-bottom: 20px; }
+  #joinScreen input {
+    width: 100%;
+    padding: 10px;
+    margin: 6px 0;
+    border-radius: 6px;
+    border: 1px solid #555;
+    background: #1b1b1d;
+    color: var(--text);
+  }
+  #joinScreen label.admin-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 14px 0;
+    font-size: 14px;
+    justify-content: center;
+  }
+  .cam-select { display: none; text-align: left; margin-top: 10px; }
+  .cam-select.visible { display: block; }
+  .cam-select label { font-size: 12px; color: #aaa; display: block; margin-top: 8px; }
+  select {
+    width: 100%;
+    padding: 8px;
+    border-radius: 6px;
+    background: #1b1b1d;
+    color: var(--text);
+    border: 1px solid #555;
+  }
+  button.primary {
+    margin-top: 18px;
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 6px;
+    background: var(--accent);
+    color: white;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  button.primary:hover { background: #1765cc; }
+
+  /* ---------- Call screen ---------- */
+  #callScreen { display: none; flex: 1; flex-direction: column; height: 100%; }
+  #videoGrid {
+    flex: 1;
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    align-content: start;
+  }
+  .tile {
+    position: relative;
+    background: #000;
+    border-radius: 10px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+  }
+  .tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .tile .label {
+    position: absolute;
+    bottom: 6px;
+    left: 8px;
+    font-size: 12px;
+    background: rgba(0,0,0,0.55);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  #controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 14px;
+    padding: 14px;
+    background: var(--panel);
+  }
+  .ctrl-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: #3c4043;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+  }
+  .ctrl-btn.off { background: var(--danger); }
+  #leaveBtn { background: var(--danger); width: auto; border-radius: 24px; padding: 0 20px; }
+
+  #layoutToggle {
+    display: none;
+    gap: 6px;
+  }
+  #layoutToggle.visible { display: flex; }
+  #layoutToggle button {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #555;
+    background: #1b1b1d;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12px;
+  }
+  #layoutToggle button.active { background: var(--accent); border-color: var(--accent); }
+
+  /* hidden canvas used for admin compositing */
+  #compositeCanvas { display: none; }
+
+  /* focus mode: hide every tile except the teacher's, make it fill the grid */
+  #videoGrid.focus-mode { grid-template-columns: 1fr; }
+  #videoGrid.focus-mode .tile:not(.teacher-tile) { display: none; }
+  #videoGrid.focus-mode .tile.teacher-tile { aspect-ratio: unset; height: 100%; }
+  #focusBtn.active { background: var(--accent); }
+  #videoGrid.focus-mode:not(:has(.teacher-tile))::after {
+    content: "Waiting for the teacher to join…";
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: #aaa;
+    font-size: 14px;
+  }
+
+  /* ---------- Raised-hand / screen-share badges on tiles ---------- */
+  .hand-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    font-size: 16px;
+    background: rgba(0,0,0,0.55);
+    border-radius: 50%;
+    padding: 3px 5px;
+    line-height: 1;
+  }
+
+  /* ---------- Chat / "ask a question" panel ---------- */
+  .ctrl-btn { position: relative; }
+  .ctrl-btn.active { background: var(--accent); }
+  #chatBadge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--danger);
+    display: none;
+  }
+  #chatPanel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 300px;
+    max-width: 85vw;
+    height: 100%;
+    background: var(--panel);
+    border-left: 1px solid #444;
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    z-index: 20;
+  }
+  #chatPanel.open { transform: translateX(0); }
+  #chatHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid #444;
+    font-size: 14px;
+  }
+  #chatHeader button { background: none; border: none; color: var(--text); font-size: 16px; cursor: pointer; }
+  #chatReplyTarget {
+    display: none;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    font-size: 12px;
+    background: #1b1b1d;
+    border-bottom: 1px solid #444;
+  }
+  #chatReplyTarget button { background: none; border: none; color: var(--accent); font-size: 12px; cursor: pointer; }
+  #chatMessages { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .chat-msg { max-width: 88%; padding: 8px 10px; border-radius: 10px; font-size: 13px; background: #3c4043; align-self: flex-start; word-wrap: break-word; }
+  .chat-msg.self { align-self: flex-end; background: var(--accent); }
+  .chat-msg .chat-sender { font-size: 11px; opacity: 0.75; margin-bottom: 2px; }
+  #chatInputRow { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #444; }
+  #chatInputRow input { flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #555; background: #1b1b1d; color: var(--text); font-size: 13px; }
+  #chatInputRow button { padding: 8px 12px; border: none; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; font-size: 13px; }
+
+  /* ---------- Room code bar (visible during the call) ---------- */
+  #roomBar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #1b1b1d;
+    font-size: 12px;
+    color: #aaa;
+  }
+  #roomBar button {
+    background: none;
+    border: 1px solid #555;
+    border-radius: 4px;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 8px;
+  }
+  #roomCodeDisplay { font-weight: bold; color: var(--text); letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+  <!-- JOIN SCREEN -->
+  <div id="joinScreen">
+    <h1>TeacherMeet</h1>
+    <input id="nameInput" placeholder="Your name" maxlength="60" />
+    <div style="display:flex;gap:6px;">
+      <input id="roomInput" placeholder="Room code (share with students)" style="flex:1;" maxlength="60" />
+      <button type="button" id="generateRoomBtn" title="Generate a random room code"
+        style="padding:0 12px;border-radius:6px;border:1px solid #555;background:#1b1b1d;color:var(--text);cursor:pointer;font-size:16px;">🎲</button>
+    </div>
+
+    <label class="admin-toggle">
+      <input type="checkbox" id="adminToggle" />
+      I'm the admin (use two cameras)
+    </label>
+
+    <div id="singleCamSelect" class="cam-select visible">
+      <label>Camera</label>
+      <select id="singleCamera"></select>
+    </div>
+
+    <div id="dualCamSelect" class="cam-select">
+      <label>Face camera (laptop)</label>
+      <select id="faceCamera"></select>
+      <label>Paper / pen camera (phone via USB)</label>
+      <select id="paperCamera"></select>
+    </div>
+
+    <button class="primary" id="joinBtn">Join call</button>
+  </div>
+
+  <!-- CALL SCREEN -->
+  <div id="callScreen">
+    <div id="roomBar">
+      Room: <span id="roomCodeDisplay"></span>
+      <button id="copyRoomBtn" title="Copy room code">📋 Copy</button>
+    </div>
+    <div id="videoGrid"></div>
+    <div id="controls">
+      <button class="ctrl-btn" id="micBtn" title="Mute/unmute">🎤</button>
+      <button class="ctrl-btn" id="camBtn" title="Camera on/off">📷</button>
+      <div id="layoutToggle">
+        <button id="layoutBoth" class="active">Both</button>
+        <button id="layoutFace">Face only</button>
+        <button id="layoutPaper">Paper only</button>
+      </div>
+      <button id="focusBtn" class="ctrl-btn" style="width:auto;border-radius:24px;padding:0 16px;font-size:13px;" title="Show only the teacher's video">▣ Focus teacher</button>
+      <button id="screenBtn" class="ctrl-btn" style="width:auto;border-radius:24px;padding:0 16px;font-size:16px;" title="Share your screen">🖥️</button>
+      <button id="chatBtn" class="ctrl-btn" title="Chat / student questions">💬<span id="chatBadge"></span></button>
+      <button id="leaveBtn" class="ctrl-btn">Leave</button>
+    </div>
+  </div>
+
+  <div id="chatPanel">
+    <div id="chatHeader">
+      <span>Chat</span>
+      <button id="chatCloseBtn">✕</button>
+    </div>
+    <div id="chatReplyTarget">
+      <span class="target-name"></span>
+      <button id="chatReplyClearBtn">Reply to all instead</button>
+    </div>
+    <div id="chatMessages"></div>
+    <div id="chatInputRow">
+      <input id="chatInput" placeholder="Message a student, or reply to all…" maxlength="500" />
+      <button id="chatSendBtn">Send</button>
+    </div>
+  </div>
+
+  <canvas id="compositeCanvas" width="1280" height="720"></canvas>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
