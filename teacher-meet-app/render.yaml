@@ -1,16 +1,9 @@
-# Render Blueprint - deploys both free pieces in one go.
-# In Render: New -> Blueprint -> point at this repo -> Apply.
-# After it's live, copy the signaling service's https URL, turn "https://"
-# into "wss://", and paste it into:
-#   - web-client/config.js      (SIGNALING_URL)
-#   - electron-app/config.json  (signalingUrl)
-# then redeploy the static site (web-client) / restart the Electron app.
 services:
   - type: web
     name: teachermeet-signaling
-    env: node
+    runtime: node
     plan: free
-    rootDir: signaling-server
+    rootDir: teacher-meet-app/signaling-server
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /
@@ -20,8 +13,7 @@ services:
 
   - type: web
     name: teachermeet-web-client
-    env: static
-    plan: free
-    rootDir: web-client
+    runtime: static
+    rootDir: teacher-meet-app/web-client
     buildCommand: ""
     staticPublishPath: .
