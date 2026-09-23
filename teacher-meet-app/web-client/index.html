@@ -65,6 +65,7 @@
     height: 100%;
     height: var(--app-height, 100dvh); /* set precisely by JS on load/rotate/resize */
     min-height: 0;
+    position: relative; /* anchor for #controls, which now overlays the video instead of sitting below it */
   }
   #videoGrid {
     flex: 1;
@@ -85,6 +86,12 @@
     aspect-ratio: 16/9;
   }
   .tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  /* Pinch-zoom/pan (JS, teacher's video only, fullscreen only) sets
+     transform directly on this element. touch-action: none stops the
+     browser's own pinch/double-tap-zoom from fighting with our custom
+     gesture handling; the short transition keeps the zoom feeling smooth
+     rather than snapping between pinch-move updates. */
+  .tile.teacher-tile video { touch-action: none; transition: transform 0.05s linear; }
   .tile .label {
     position: absolute;
     bottom: 6px;
@@ -102,9 +109,29 @@
     gap: 18px;
     padding: 14px;
     padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-    background: var(--panel);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    /* Overlay on top of the video instead of taking its own row, so the
+       video can use the full screen height. A gradient (not a flat panel)
+       keeps the buttons readable without hard-cropping the video under it. */
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 15;
+    background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.45) 65%, rgba(0,0,0,0) 100%);
+    transition: transform 0.28s ease, opacity 0.28s ease;
+    transform: translateY(0);
+    opacity: 1;
+  }
+  /* Auto-hidden state (after a few seconds of no activity). Kept in the DOM
+     (not display:none) so the transition can animate, and pointer-events is
+     turned off so a tap "through" this bar reaches the video underneath and
+     triggers the show-again tap handler instead of a hidden button. */
+  #controls.controls-hidden {
+    transform: translateY(100%);
+    opacity: 0;
+    pointer-events: none;
   }
   .ctrl-btn {
     width: 52px;
