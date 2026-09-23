@@ -17,9 +17,11 @@
   html, body {
     margin: 0;
     height: 100%;
+    height: 100dvh; /* mobile "address bar show/hide" doesn't jump the layout */
     font-family: "Segoe UI", Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
+    overflow: hidden;
   }
   body { display: flex; flex-direction: column; }
 
@@ -56,7 +58,14 @@
     cursor: pointer;
   }
 
-  #callScreen { display: none; flex: 1; flex-direction: column; height: 100%; }
+  #callScreen {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    height: 100%;
+    height: var(--app-height, 100dvh); /* set precisely by JS on load/rotate/resize */
+    min-height: 0;
+  }
   #videoGrid {
     flex: 1;
     display: grid;
@@ -94,6 +103,8 @@
     padding: 14px;
     padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     background: var(--panel);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
   .ctrl-btn {
     width: 52px;
@@ -104,15 +115,51 @@
     color: white;
     font-size: 20px;
     cursor: pointer;
+    flex-shrink: 0;
   }
   .ctrl-btn.off { background: var(--danger); }
   .ctrl-btn.active { background: var(--accent); }
-  #leaveBtn { background: var(--danger); width: auto; border-radius: 26px; padding: 0 22px; }
+  #leaveBtn { background: var(--danger); width: auto; border-radius: 26px; padding: 0 22px; flex-shrink: 0; }
+
+  /* Narrow phones (iPhone SE etc.): shrink buttons so all of them fit
+     without crowding or needing to scroll. */
+  @media (max-width: 420px) {
+    #controls { gap: 8px; padding-left: 8px; padding-right: 8px; }
+    .ctrl-btn { width: 44px; height: 44px; font-size: 17px; }
+    #leaveBtn { padding: 0 14px; font-size: 14px; }
+  }
+
+  /* Landscape (rotated) phone: slimmer controls, and pad past the side
+     notch/rounded-corner cutout instead of letting buttons sit under it. */
+  @media (orientation: landscape) {
+    #controls {
+      gap: 10px;
+      padding-top: 8px;
+      padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+      padding-left: calc(10px + env(safe-area-inset-left, 0px));
+      padding-right: calc(10px + env(safe-area-inset-right, 0px));
+    }
+    .ctrl-btn { width: 44px; height: 44px; font-size: 17px; }
+    #leaveBtn { padding: 0 16px; }
+    #videoGrid {
+      padding-left: calc(6px + env(safe-area-inset-left, 0px));
+      padding-right: calc(6px + env(safe-area-inset-right, 0px));
+    }
+  }
 
   /* focus mode: hide every tile except the teacher's, fill the screen */
-  #videoGrid.focus-mode { grid-template-columns: 1fr; }
+  #videoGrid.focus-mode { grid-template-columns: 1fr; padding: 0; gap: 0; }
   #videoGrid.focus-mode .tile:not(.teacher-tile) { display: none; }
-  #videoGrid.focus-mode .tile.teacher-tile { aspect-ratio: unset; height: 100%; }
+  #videoGrid.focus-mode .tile.teacher-tile {
+    aspect-ratio: unset;
+    height: 100%;
+    border-radius: 0;
+    background: #000;
+  }
+  /* "cover" (used for small grid thumbnails) crops the picture - in focus
+     mode the point is to see the whole teacher/paper frame, so switch to
+     "contain" here even if that means thin black bars on the sides. */
+  #videoGrid.focus-mode .tile.teacher-tile video { object-fit: contain; }
   #videoGrid.focus-mode:not(:has(.teacher-tile))::after {
     content: "Waiting for the teacher to join…";
     grid-column: 1 / -1;
@@ -202,6 +249,7 @@
       <button class="ctrl-btn" id="micBtn" title="Mute/unmute">🎤</button>
       <button class="ctrl-btn" id="camBtn" title="Camera on/off">📷</button>
       <button class="ctrl-btn" id="focusBtn" title="Show only the teacher's video">▣</button>
+      <button class="ctrl-btn" id="fullscreenBtn" title="Fullscreen / rotate to landscape">⛶</button>
       <button class="ctrl-btn" id="raiseHandBtn" title="Raise your hand">✋</button>
       <button class="ctrl-btn" id="screenBtn" title="Share your screen">🖥️</button>
       <button class="ctrl-btn" id="chatBtn" title="Ask the teacher a question">💬<span id="chatBadge"></span></button>
