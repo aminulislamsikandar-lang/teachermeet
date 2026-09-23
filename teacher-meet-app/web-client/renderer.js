@@ -26,6 +26,7 @@ const roomInput = document.getElementById("roomInput");
 const singleCamera = document.getElementById("singleCamera");
 const joinBtn = document.getElementById("joinBtn");
 const videoGrid = document.getElementById("videoGrid");
+const controlsEl = document.getElementById("controls");
 const micBtn = document.getElementById("micBtn");
 const camBtn = document.getElementById("camBtn");
 const leaveBtn = document.getElementById("leaveBtn");
@@ -78,6 +79,43 @@ const screenSharingPeers = new Set();
 // Chat
 let chatOpen = false;
 let unreadChat = 0;
+
+// ===== OVERLAY CONTROLS: auto-hide + tap-to-show =====
+// The controls bar floats on top of the video (see CSS). It shows itself
+// for a few seconds, then hides; tapping the video brings it back. Tapping
+// a control button never hides it early - only the timer running out does.
+const CONTROLS_HIDE_DELAY = 3500; // ms of inactivity before hiding
+let controlsHideTimer = null;
+
+function showControls() {
+  controlsEl.classList.remove("controls-hidden");
+  resetControlsHideTimer();
+}
+function hideControls() {
+  // Don't hide while the chat panel is open - the person may be mid-typing
+  // and the chat's own close (✕) button lives in that panel, not here, but
+  // keeping the main controls reachable while chat is open avoids surprises.
+  if (chatOpen) return;
+  controlsEl.classList.add("controls-hidden");
+}
+function resetControlsHideTimer() {
+  clearTimeout(controlsHideTimer);
+  if (chatOpen) return;
+  controlsHideTimer = setTimeout(hideControls, CONTROLS_HIDE_DELAY);
+}
+// Tapping anywhere on the video area only ever brings the controls back -
+// it never hides them and never triggers anything else. Pinch/pan gestures
+// (added further below) set gestureInProgress so the tap they end with
+// doesn't get treated as a plain show-controls tap.
+videoGrid.addEventListener("click", () => {
+  if (gestureInProgress) return;
+  showControls();
+});
+// Pressing any button in the bar counts as activity: keep it visible and
+// restart the hide timer, rather than letting it disappear mid-interaction.
+controlsEl.addEventListener("click", () => {
+  showControls();
+});
 
 async function populateCameras() {
   try {
@@ -451,11 +489,15 @@ chatBtn.addEventListener("click", () => {
   if (chatOpen) {
     unreadChat = 0;
     chatBadge.style.display = "none";
+    clearTimeout(controlsHideTimer); // don't auto-hide the bar while chat is open
+  } else {
+    resetControlsHideTimer();
   }
 });
 chatCloseBtn.addEventListener("click", () => {
   chatOpen = false;
   chatPanel.classList.remove("open");
+  resetControlsHideTimer();
 });
 
 micBtn.addEventListener("click", () => {
@@ -495,6 +537,136 @@ function cleanupAndLeave() {
   window.location.reload();
 }
 leaveBtn.addEventListener("click", cleanupAndLeave);
+
+// ===== TEACHER-VIDEO PINCH-ZOOM + PAN (fullscreen only) =====
+// Scope, by design: only the teacher's video (`.teacher-tile`), and only
+// while this page is in fullscreen (the "professional mode" gate agreed on).
+// Outside fullscreen, or on any other tile, none of this runs at all.
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 3;
+let zoomScale = 1;
+let panX = 0;
+let panY = 0;
+let pinchStartDist = 0;
+let pinchStartScale = 1;
+let panStart = null; // { x, y, panX, panY } while a single-finger drag is active
+let lastTapTime = 0;
+let lastTapPos = null;
+// True while a pinch or pan touch is active (plus a brief tail after it
+// ends), so the tap-to-show-controls click handler above can tell a real
+// tap apart from the tap-like click a browser fires at the end of a touch
+// gesture, and ignore the latter.
+let gestureInProgress = false;
+
+function getTeacherVideoEl() {
+  const tile = videoGrid.querySelector(".tile.teacher-tile");
+  return tile ? tile.querySelector("video") : null;
+}
+function applyZoomTransform() {
+  const video = getTeacherVideoEl();
+  if (video) video.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomScale})`;
+}
+function resetZoom() {
+  zoomScale = 1;
+  panX = 0;
+  panY = 0;
+  applyZoomTransform();
+}
+// Keeps the pan offset from dragging the zoomed frame past its own edge -
+// the further zoomed in, the more room there is to pan, and at 1x there's
+// none at all.
+function clampPan() {
+  const video = getTeacherVideoEl();
+  if (!video) return;
+  const maxOffsetX = (video.clientWidth * (zoomScale - 1)) / 2;
+  const maxOffsetY = (video.clientHeight * (zoomScale - 1)) / 2;
+  panX = Math.max(-maxOffsetX, Math.min(maxOffsetX, panX));
+  panY = Math.max(-maxOffsetY, Math.min(maxOffsetY, panY));
+}
+function touchDist(t1, t2) {
+  return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+}
+function zoomAllowed(target) {
+  return !!document.fullscreenElement && !!target.closest?.(".tile.teacher-tile");
+}
+
+videoGrid.addEventListener(
+  "touchstart",
+  (e) => {
+    if (!zoomAllowed(e.target)) return;
+    if (e.touches.length === 2) {
+      gestureInProgress = true;
+      pinchStartDist = touchDist(e.touches[0], e.touches[1]);
+      pinchStartScale = zoomScale;
+      panStart = null;
+    } else if (e.touches.length === 1) {
+      const pos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      // Double-tap: two quick taps close together resets zoom, universal
+      // "reset" gesture so no separate reset button is needed.
+      const now = Date.now();
+      if (lastTapTime && now - lastTapTime < 300 && lastTapPos && Math.hypot(pos.x - lastTapPos.x, pos.y - lastTapPos.y) < 30) {
+        resetZoom();
+        gestureInProgress = true;
+        lastTapTime = 0;
+      } else {
+        lastTapTime = now;
+        lastTapPos = pos;
+      }
+      // Single-finger drag only pans when already zoomed in - at 1x that
+      // same single finger is left free for the tap-to-show-controls gesture.
+      if (zoomScale > 1) {
+        gestureInProgress = true;
+        panStart = { x: pos.x, y: pos.y, panX, panY };
+      }
+    }
+  },
+  { passive: true }
+);
+
+videoGrid.addEventListener(
+  "touchmove",
+  (e) => {
+    if (!zoomAllowed(e.target)) return;
+    if (e.touches.length === 2 && pinchStartDist) {
+      e.preventDefault();
+      const newDist = touchDist(e.touches[0], e.touches[1]);
+      zoomScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, pinchStartScale * (newDist / pinchStartDist)));
+      clampPan();
+      applyZoomTransform();
+    } else if (e.touches.length === 1 && panStart && zoomScale > 1) {
+      e.preventDefault();
+      panX = panStart.panX + (e.touches[0].clientX - panStart.x);
+      panY = panStart.panY + (e.touches[0].clientY - panStart.y);
+      clampPan();
+      applyZoomTransform();
+    }
+  },
+  { passive: false }
+);
+
+videoGrid.addEventListener("touchend", (e) => {
+  if (e.touches.length === 2) {
+    // Dropped from 2 fingers to 1 mid-pinch: stop pinching, and if still
+    // zoomed in, the remaining finger can carry straight into a pan.
+    pinchStartDist = 0;
+  } else if (e.touches.length === 0) {
+    pinchStartDist = 0;
+    panStart = null;
+    if (zoomScale <= 1.01) resetZoom(); // snap fully back to 1x, no residual drift
+    setTimeout(() => {
+      gestureInProgress = false;
+    }, 50);
+  } else if (e.touches.length === 1) {
+    pinchStartDist = 0;
+    if (zoomScale > 1) panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, panX, panY };
+  }
+});
+
+// Leaving fullscreen always resets zoom, so the next time fullscreen opens
+// it starts fresh at 1x rather than remembering an old zoom/pan state.
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement) resetZoom();
+});
 
 let focusMode = false;
 focusBtn.addEventListener("click", () => {
@@ -537,6 +709,20 @@ document.addEventListener("fullscreenchange", () => {
   setAppHeight();
 });
 
+// Best-effort: also try to enter fullscreen automatically when the phone is
+// rotated to landscape, so rotating alone is often enough without reaching
+// for the button. This is a bonus, not the reliable path - most mobile
+// browsers only grant the Fullscreen API right after a direct tap/click, so
+// on some phones (iOS Safari especially) this attempt will silently do
+// nothing and the person will still need to tap the fullscreen button once.
+window.addEventListener("orientationchange", () => {
+  setTimeout(() => {
+    if (!document.fullscreenElement && screen.orientation && /landscape/i.test(screen.orientation.type || "")) {
+      enterFullscreenLandscape().catch(() => {});
+    }
+  }, 300);
+});
+
 joinBtn.addEventListener("click", async () => {
   // Uppercase so "abc123" and "ABC123" still land in the same room as
   // whatever the teacher typed - the #1 cause of "I can't see the class".
@@ -555,6 +741,7 @@ joinBtn.addEventListener("click", async () => {
     localStream = camStream;
     joinScreen.style.display = "none";
     callScreen.style.display = "flex";
+    showControls(); // controls start visible, then auto-hide after CONTROLS_HIDE_DELAY
     addTile("self", localStream, name + " (You)");
     await connectSignaling(room, name);
   } catch (err) {
