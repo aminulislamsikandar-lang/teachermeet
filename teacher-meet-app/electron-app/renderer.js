@@ -57,6 +57,7 @@ const chatInput = document.getElementById("chatInput");
 const chatSendBtn = document.getElementById("chatSendBtn");
 const chatReplyTargetEl = document.getElementById("chatReplyTarget");
 const chatReplyClearBtn = document.getElementById("chatReplyClearBtn");
+const controls = document.getElementById("controls");
 const layoutToggle = document.getElementById("layoutToggle");
 const layoutButtons = {
   both: document.getElementById("layoutBoth"),
@@ -656,6 +657,22 @@ function cleanupAndLeave() {
 }
 leaveBtn.addEventListener("click", cleanupAndLeave);
 
+// ===== AUTO-HIDE CONTROLS =====
+// Presentation-mode UX: the button bar fades away after a few seconds of no
+// mouse movement so it doesn't sit on screen distracting students/blocking
+// the view, and comes right back the moment the teacher moves the cursor.
+let idleTimer = null;
+function showControls() {
+  controls.classList.remove("hidden-idle");
+  clearTimeout(idleTimer);
+  if (callScreen.style.display === "flex") {
+    idleTimer = setTimeout(() => controls.classList.add("hidden-idle"), 3000);
+  }
+}
+document.addEventListener("mousemove", showControls);
+document.addEventListener("mousedown", showControls);
+document.addEventListener("keydown", showControls);
+
 let focusMode = false;
 focusBtn.addEventListener("click", () => {
   focusMode = !focusMode;
@@ -708,6 +725,7 @@ joinBtn.addEventListener("click", async () => {
     roomCodeDisplay.textContent = room;
     layoutToggle.classList.toggle("visible", isAdmin);
     addTile("self", localStream, myName + " (You)", isAdmin);
+    showControls(); // arm the auto-hide timer as soon as the call view appears
     await connectSignaling(room, myName, isAdmin);
   } catch (err) {
     console.error(err);
