@@ -24,11 +24,21 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    fullscreen: true, // cover the whole laptop screen, taskbar included
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // F11 toggles fullscreen, Escape drops back to a normal window - handy
+  // while presenting if the teacher needs to glance at another app quickly.
+  win.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    if (input.key === "F11") win.setFullScreen(!win.isFullScreen());
+    if (input.key === "Escape" && win.isFullScreen()) win.setFullScreen(false);
   });
 
   win.loadFile("index.html");
