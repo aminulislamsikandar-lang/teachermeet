@@ -30,6 +30,7 @@ const micBtn = document.getElementById("micBtn");
 const camBtn = document.getElementById("camBtn");
 const leaveBtn = document.getElementById("leaveBtn");
 const focusBtn = document.getElementById("focusBtn");
+const fullscreenBtn = document.getElementById("fullscreenBtn");
 const raiseHandBtn = document.getElementById("raiseHandBtn");
 const screenBtn = document.getElementById("screenBtn");
 const chatBtn = document.getElementById("chatBtn");
@@ -48,6 +49,19 @@ let camOn = true;
 let myName = "Student";
 let reconnectAttempts = 0;
 const peers = new Map();
+
+// Mobile browsers resize their visible viewport when the address bar shows/
+// hides and on rotation, but plain 100vh doesn't track that - this is the
+// classic cause of controls "jumping" or overlapping right after rotating.
+// Recompute a --app-height CSS variable and let the CSS above use it.
+function setAppHeight() {
+  const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  document.documentElement.style.setProperty("--app-height", h + "px");
+}
+setAppHeight();
+window.addEventListener("resize", setAppHeight);
+window.addEventListener("orientationchange", () => setTimeout(setAppHeight, 250));
+if (window.visualViewport) window.visualViewport.addEventListener("resize", setAppHeight);
 
 // Raise hand
 let handRaised = false;
@@ -475,6 +489,9 @@ function cleanupAndLeave() {
   try {
     ws?.close();
   } catch {}
+  try {
+    if (document.fullscreenElement) document.exitFullscreen();
+  } catch {}
   window.location.reload();
 }
 leaveBtn.addEventListener("click", cleanupAndLeave);
@@ -485,6 +502,39 @@ focusBtn.addEventListener("click", () => {
   videoGrid.classList.toggle("focus-mode", focusMode);
   focusBtn.classList.toggle("active", focusMode);
   focusBtn.textContent = focusMode ? "▦" : "▣";
+});
+
+// ===== FULLSCREEN / ROTATE =====
+// A webpage can't force-rotate the phone, but it CAN go fullscreen and then
+// (on most Android browsers) lock orientation to landscape - that's the
+// closest thing to a "rotate" button the web platform allows. iOS Safari
+// doesn't support orientation lock, so there it just goes fullscreen and the
+// person rotates manually - the CSS/height fixes above keep that clean too.
+async function enterFullscreenLandscape() {
+  try {
+    if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+    if (screen.orientation && screen.orientation.lock) {
+      await screen.orientation.lock("landscape").catch(() => {});
+    }
+  } catch {
+    /* fullscreen/orientation lock isn't available on this browser - ignore */
+  }
+}
+async function exitFullscreenPortrait() {
+  try {
+    if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+    if (document.fullscreenElement) await document.exitFullscreen();
+  } catch {
+    /* ignore */
+  }
+}
+fullscreenBtn.addEventListener("click", () => {
+  if (document.fullscreenElement) exitFullscreenPortrait();
+  else enterFullscreenLandscape();
+});
+document.addEventListener("fullscreenchange", () => {
+  fullscreenBtn.classList.toggle("active", !!document.fullscreenElement);
+  setAppHeight();
 });
 
 joinBtn.addEventListener("click", async () => {
