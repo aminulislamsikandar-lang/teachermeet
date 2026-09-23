@@ -153,6 +153,45 @@
   /* hidden canvas used for admin compositing */
   #compositeCanvas { display: none; }
 
+  /* ---------- Draggable/resizable face-cam PIP handle ---------- */
+  #pipHandle {
+    position: fixed;
+    display: none;
+    border: 2px dashed rgba(255,255,255,0.85);
+    box-sizing: border-box;
+    cursor: move;
+    z-index: 30;
+    touch-action: none;
+  }
+  #pipHandle.shape-rect, #pipHandle.shape-square { border-radius: 8px; }
+  #pipHandle.shape-circle { border-radius: 50%; }
+  #pipHandle.dragging { border-color: var(--accent); background: rgba(26,115,232,0.08); }
+  #pipShapeBtn {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    background: rgba(0,0,0,0.65);
+    border: none;
+    color: white;
+    font-size: 12px;
+    border-radius: 4px;
+    padding: 3px 6px;
+    cursor: pointer;
+    touch-action: none;
+  }
+  #pipResizeGrip {
+    position: absolute;
+    right: -7px;
+    bottom: -7px;
+    width: 18px;
+    height: 18px;
+    background: var(--accent);
+    border: 2px solid white;
+    border-radius: 50%;
+    cursor: nwse-resize;
+    touch-action: none;
+  }
+
   /* focus mode: hide every tile except the teacher's, make it fill the grid */
   #videoGrid.focus-mode { grid-template-columns: 1fr; }
   #videoGrid.focus-mode .tile:not(.teacher-tile) { display: none; }
@@ -330,6 +369,12 @@
   </div>
 
   <canvas id="compositeCanvas" width="1280" height="720"></canvas>
+
+  <!-- Draggable/resizable overlay for repositioning the face-cam PIP live during the call -->
+  <div id="pipHandle" class="shape-rect">
+    <button id="pipShapeBtn" type="button" title="Switch PIP shape">▭</button>
+    <div id="pipResizeGrip" title="Drag to resize"></div>
+  </div>
 
   <script src="renderer.js"></script>
 </body>
