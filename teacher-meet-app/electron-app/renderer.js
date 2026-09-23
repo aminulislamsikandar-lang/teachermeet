@@ -66,6 +66,9 @@ const layoutButtons = {
 };
 const canvas = document.getElementById("compositeCanvas");
 const ctx = canvas.getContext("2d");
+const pipHandle = document.getElementById("pipHandle");
+const pipShapeBtn = document.getElementById("pipShapeBtn");
+const pipResizeGrip = document.getElementById("pipResizeGrip");
 
 // ===== STATE =====
 let ws = null;
@@ -76,6 +79,24 @@ let localStream = null; // what actually goes out over WebRTC
 let faceVideoEl = null; // hidden <video> playing laptop cam (admin only)
 let paperVideoEl = null; // hidden <video> playing phone cam (admin only)
 let compositeLayout = "both"; // both | face | paper
+
+// ===== PIP (face-cam overlay) position/shape/size - all ratios of the canvas =====
+const pipState = { xRatio: 0.71, yRatio: 0.685, wRatio: 0.25, hRatio: 0.25, shape: "rect" };
+const PIP_MIN_W_RATIO = 0.12;
+const PIP_MAX_W_RATIO = { rect: 0.45, square: 0.32, circle: 0.32 };
+
+// A "rect" PIP keeps the same 16:9 shape as the full frame, so on a 16:9
+// canvas hRatio === wRatio. "square"/"circle" need extra height per unit of
+// width to look right instead of squashed.
+function computeHRatio(shape, wRatio) {
+  return shape === "rect" ? wRatio : wRatio * (canvas.width / canvas.height);
+}
+function clampPipToFrame() {
+  pipState.wRatio = Math.min(Math.max(pipState.wRatio, PIP_MIN_W_RATIO), PIP_MAX_W_RATIO[pipState.shape]);
+  pipState.hRatio = computeHRatio(pipState.shape, pipState.wRatio);
+  pipState.xRatio = Math.min(Math.max(pipState.xRatio, 0), 1 - pipState.wRatio);
+  pipState.yRatio = Math.min(Math.max(pipState.yRatio, 0), 1 - pipState.hRatio);
+}
 let micOn = true;
 let camOn = true;
 let reconnectAttempts = 0;
@@ -121,9 +142,9 @@ async function populateCameraLists() {
     });
   });
 
-  // Best-effort default: if a device label contains "droidcam"/"iriun"/"phone",
-  // assume that's the paper/pen camera for the admin dual-cam picker.
-  const phoneLike = cams.findIndex((c) => /droidcam|iriun|phone|iv cam|ivcam/i.test(c.label));
+  // Best-effort default: if a device label contains "droidcam"/"iriun"/"camo"/
+  // "phone", assume that's the paper/pen camera for the admin dual-cam picker.
+  const phoneLike = cams.findIndex((c) => /droidcam|iriun|camo|phone|iv cam|ivcam/i.test(c.label));
   if (phoneLike >= 0 && paperCamera.options[phoneLike]) {
     paperCamera.selectedIndex = phoneLike;
     faceCamera.selectedIndex = phoneLike === 0 ? Math.min(1, cams.length - 1) : 0;
@@ -162,23 +183,151 @@ function drawCompositeFrame() {
   } else if (compositeLayout === "paper" && paperVideoEl) {
     ctx.drawImage(paperVideoEl, 0, 0, w, h);
   } else {
-    // "both": paper/pen fills the frame, face cam small picture-in-picture
+    // "both": paper/pen fills the frame, face cam as a movable/resizable PIP
     if (paperVideoEl) ctx.drawImage(paperVideoEl, 0, 0, w, h);
     if (faceVideoEl) {
-      const pw = w * 0.25;
-      const ph = pw * (9 / 16);
-      const px = w - pw - 20;
-      const py = h - ph - 20;
+      const px = pipState.xRatio * w;
+      const py = pipState.yRatio * h;
+      const pw = pipState.wRatio * w;
+      const ph = pipState.hRatio * h;
       ctx.save();
       ctx.strokeStyle = "#1a73e8";
       ctx.lineWidth = 3;
-      ctx.drawImage(faceVideoEl, px, py, pw, ph);
-      ctx.strokeRect(px, py, pw, ph);
+      if (pipState.shape === "circle") {
+        const cx = px + pw / 2;
+        const cy = py + ph / 2;
+        const r = Math.min(pw, ph) / 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.clip();
+        // Cover-fit the face video into the circle's bounding square so it
+        // isn't stretched, same idea as CSS object-fit: cover.
+        ctx.drawImage(faceVideoEl, cx - r, cy - r, r * 2, r * 2);
+        ctx.stroke();
+      } else {
+        const radius = pipState.shape === "square" ? 10 : 6;
+        ctx.beginPath();
+        ctx.roundRect ? ctx.roundRect(px, py, pw, ph, radius) : ctx.rect(px, py, pw, ph);
+        ctx.clip();
+        ctx.drawImage(faceVideoEl, px, py, pw, ph);
+        ctx.stroke();
+        if (ctx.roundRect) {
+          ctx.beginPath();
+          ctx.roundRect(px, py, pw, ph, radius);
+          ctx.stroke();
+        }
+      }
       ctx.restore();
     }
   }
+  syncPipHandlePosition();
   compositeRafId = requestAnimationFrame(drawCompositeFrame);
 }
+
+// ===== PIP DRAG / RESIZE / SHAPE OVERLAY =====
+// Keeps the transparent #pipHandle div lined up exactly over where the face
+// cam is drawn on the canvas, using the self-tile's on-screen box as the
+// reference (the tile is locked to the same 16:9 aspect as the canvas, so
+// the ratio math is a direct scale - no cropping to account for).
+let pipDragging = false;
+let pipResizing = false;
+let pipDragOffset = { dx: 0, dy: 0 };
+
+function syncPipHandlePosition() {
+  const selfTile = document.getElementById("tile-self");
+  const showHandle = isAdmin && compositeLayout === "both" && selfTile && callScreen.style.display === "flex";
+  if (!showHandle) {
+    pipHandle.style.display = "none";
+    return;
+  }
+  const rect = selfTile.getBoundingClientRect();
+  pipHandle.style.display = "block";
+  pipHandle.style.left = rect.left + pipState.xRatio * rect.width + "px";
+  pipHandle.style.top = rect.top + pipState.yRatio * rect.height + "px";
+  pipHandle.style.width = pipState.wRatio * rect.width + "px";
+  pipHandle.style.height = pipState.hRatio * rect.height + "px";
+}
+
+function getSelfTileRect() {
+  return document.getElementById("tile-self")?.getBoundingClientRect() || null;
+}
+
+pipHandle.addEventListener("pointerdown", (e) => {
+  if (e.target === pipResizeGrip || e.target === pipShapeBtn) return; // those have their own handlers
+  const rect = getSelfTileRect();
+  if (!rect) return;
+  pipDragging = true;
+  pipHandle.classList.add("dragging");
+  pipHandle.setPointerCapture(e.pointerId);
+  pipDragOffset.dx = e.clientX - pipHandle.getBoundingClientRect().left;
+  pipDragOffset.dy = e.clientY - pipHandle.getBoundingClientRect().top;
+});
+pipHandle.addEventListener("pointermove", (e) => {
+  if (!pipDragging) return;
+  const rect = getSelfTileRect();
+  if (!rect) return;
+  const newLeft = e.clientX - pipDragOffset.dx - rect.left;
+  const newTop = e.clientY - pipDragOffset.dy - rect.top;
+  pipState.xRatio = newLeft / rect.width;
+  pipState.yRatio = newTop / rect.height;
+  clampPipToFrame();
+  syncPipHandlePosition();
+});
+function endPipDrag(e) {
+  if (!pipDragging) return;
+  pipDragging = false;
+  pipHandle.classList.remove("dragging");
+  try {
+    pipHandle.releasePointerCapture(e.pointerId);
+  } catch {}
+}
+pipHandle.addEventListener("pointerup", endPipDrag);
+pipHandle.addEventListener("pointercancel", endPipDrag);
+
+pipResizeGrip.addEventListener("pointerdown", (e) => {
+  e.stopPropagation();
+  const rect = getSelfTileRect();
+  if (!rect) return;
+  pipResizing = true;
+  pipResizeGrip.setPointerCapture(e.pointerId);
+});
+pipResizeGrip.addEventListener("pointermove", (e) => {
+  if (!pipResizing) return;
+  const rect = getSelfTileRect();
+  if (!rect) return;
+  const newWidthPx = e.clientX - rect.left - pipState.xRatio * rect.width;
+  pipState.wRatio = newWidthPx / rect.width;
+  pipState.hRatio = computeHRatio(pipState.shape, pipState.wRatio);
+  clampPipToFrame();
+  syncPipHandlePosition();
+});
+function endPipResize(e) {
+  if (!pipResizing) return;
+  pipResizing = false;
+  try {
+    pipResizeGrip.releasePointerCapture(e.pointerId);
+  } catch {}
+}
+pipResizeGrip.addEventListener("pointerup", endPipResize);
+pipResizeGrip.addEventListener("pointercancel", endPipResize);
+
+const PIP_SHAPES = ["rect", "square", "circle"];
+const PIP_SHAPE_ICONS = { rect: "▭", square: "⬜", circle: "⚪" };
+pipShapeBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+pipShapeBtn.addEventListener("click", () => {
+  const nextIndex = (PIP_SHAPES.indexOf(pipState.shape) + 1) % PIP_SHAPES.length;
+  pipState.shape = PIP_SHAPES[nextIndex];
+  pipState.hRatio = computeHRatio(pipState.shape, pipState.wRatio);
+  clampPipToFrame();
+  pipHandle.classList.remove("shape-rect", "shape-square", "shape-circle");
+  pipHandle.classList.add("shape-" + pipState.shape);
+  pipShapeBtn.textContent = PIP_SHAPE_ICONS[pipState.shape];
+  syncPipHandlePosition();
+});
+
+// Re-sync on window resize too (not just every composited frame) so the
+// handle doesn't lag a frame behind on a fast resize.
+window.addEventListener("resize", () => syncPipHandlePosition());
 
 async function buildLocalStream() {
   const micStream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONSTRAINTS, video: false });
